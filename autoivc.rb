@@ -133,13 +133,16 @@ class Agent
     @ff.button(:name=>REGISTER_NEXT_NEXT_BUTTON_NAME).click
     sleep 10 # Give the ajaxy checkout process plenty of time...
     if @ff.table(:id=>CHECKOUT_TABLE_ID).text.include?("Enrolled #{ticket_no}")
+      $log.print "S"
       return true
     else
+      $log.print "F"
       return false
     end
   end
   
   def is_class_open?(ticket_no)
+    $log.print "?"
     if response = self.try_adding_class(ticket_no)
       if response.include?(SUCCESS_MSG)
         $log.print "O" # Open
@@ -166,6 +169,7 @@ class CourseDelegate
   # Wrapper class for the course, binding together its ticket number,
   # a browser simulation Agent loaded with MySite credentials,
   # and finally a Mailer object loaded with GMail credentials.
+  attr_accessor :id
   def self.wrap(options)
     o[:tickets].map do |id|
       self.new(id, o[:agent], o[:mailer])
@@ -213,7 +217,8 @@ while true
     :agent => Agent.new(MYSITE_USERNAME, MYSITE_PASSWORD),
     :mailer => Mailer.new(GMAIL_EMAIL, GMAIL_PASSWORD),
   }).each do |course|
-    begin 
+    begin
+      $log.puts "Current course: #{course.id}"
       course.register!
     rescue Exception => ex
       $log.puts ex.message
