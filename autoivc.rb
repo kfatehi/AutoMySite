@@ -2,82 +2,189 @@
 require 'rubygems'
 require 'firewatir' # Browser simulator. See watir.com for installation info
 require 'pony' # Easy email
-# This is confirmed to work with MySite Version 2.0
-# You use it to camp ONE class that you're trying to get into. 
-# Once a slot in the class opens (Someone drops), an email is sent to notify you.
-# You could modify it for multiple classes easily. Or run multiple instances.
-# I recommend running it constantly in a virtual machine.
 
-MYSITE_USERNAME = "123456" # MySite username
-MYSITE_PASSWORD = "1234" # MySite password
+load "config.rb" # Configurations stored as such:
+# MYSITE_USERNAME = "000000" # MySite username
+# MYSITE_PASSWORD = "0000" # MySite password
+# GMAIL_EMAIL = "you@gmail.com" # Your gmail username
+# GMAIL_PASSWORD = "your_gmail_pass" # Your gmail password
+# TICKETS = [00000, 11111, 22222] # Classes you're trying to add
 
-GMAIL_EMAIL = "my@gmail.com" # Your gmail username
-GMAIL_PASSWORD = "mygmailpass" # Your gmail password
+class Mailer
 
-TICKET_NO = "60735" # Ticket number for the class you're trying to get into.
-
-def mail_me(subject, body)
-  Pony.mail(:to => GMAIL_EMAIL, :via => :smtp,
-    :body=>body, :subject=>subject, :via_options => {
-    :address              => 'smtp.gmail.com',
-    :port                 => '587',
-    :enable_starttls_auto => true,
-    :user_name            => GMAIL_EMAIL,
-    :password             => GMAIL_PASSWORD,
-    :authentication       => :plain,
-    :domain               => "localhost.localdomain"
-  })
-end
-def login
-  @browser.text_field(:name=>"UserName").set MYSITE_USERNAME
-  @browser.text_field(:name=>"Password").set MYSITE_PASSWORD
-  @browser.button(:name=>"LoginUser").click
-end
-def wait_load
-  sleep 1 until @browser.status == "Done"
-end
-def autoregister(wait=0)
-  @browser.close if @browser.html rescue nil
-  while !Time.now.hour.between?(6, 23)
-    # mysite is only open between 6 am and 11 pm
-    puts "Registration is closed. Sleeping"
-    sleep 3600 # check the time again in an an hour 
+  def initialize(gmail_email, gmail_password, to=nil)
+    @opts = {
+      :to => to||=gmail_email, :via => :smtp,
+      :body=>"", :subject=>"", :via_options => {
+        :address              => 'smtp.gmail.com',
+        :port                 => '587',
+        :enable_starttls_auto => true,
+        :user_name            => GMAIL_EMAIL,
+        :password             => GMAIL_PASSWORD,
+        :authentication       => :plain,
+        :domain               => "localhost.localdomain"
+      }
+    }
   end
-  begin
-    @browser = Watir::Browser.new
-    sleep wait
-    # go to login page
-    @browser.goto("https://www1.socccd.cc.ca.us/portal/")
-    wait_load
-    login
-    wait_load
-    # go to registration page
-    @browser.goto("https://www1.socccd.cc.ca.us/Portal/MySite/Classes/Registration/SelectTerm.aspx")
-    wait_load
-    @browser.button(:name, "ctl00$BodyContent$Term1_AddDropClasses").click
-    wait_load
-    @browser.button(:name, "ctl00$BodyContent$btnNextB").click # next button
-    wait_load
-    if !@browser.text.include? TICKET_NO # error
-      p "Some kind of error occurred... rechecking soon" # <-- this never happened in testing
-      autoregister 120 # restarts the process after X time
-    elsif @browser.text.include? "Class status is full"
-      p "Class was full... rechecking in 10 minutes" # <-- this always happened in testing! :P
-      autoregister 300 # restarts the process after X time.
+  
+  def deliver(subject, body)
+    @opts[:subject] = subject
+    @opts[:body] = body
+    Pony.mail(@opts)
+  end
+  
+  def deliver_alert_class_open(ticket_no)
+    deliver "ALERT Class Open: #{ticket_no}",
+      "Notification that class with ticket # #{ticket_no} is currently OPEN!"
+  end
+  
+  def deliver_registration_success(ticket_no)
+    deliver "SUCCESS Class Registered: #{ticket_no}",
+      "Notification that class with ticket # #{ticket_no} has been REGISTERED!"
+  end
+  
+end
+
+module Constants
+  MAIN_URL = "https://www1.socccd.cc.ca.us/portal/"
+  SCHEDULE_BUILDER_URL = "https://www1.socccd.cc.ca.us/Portal/MySite/Classes/Registration/SelectTerm.aspx"
+  SCHEDULE_BUILDER_BUTTON_NAME = "ctl00$BodyContent$Term1_AddDropClasses"
+  TICKET_TEXTFIELD_NAME = "ctl00$BodyContent$ucScheduleBuilder$txtTicketNumber"
+  TICKET_SUBMIT_NAME = "ctl00$BodyContent$ucScheduleBuilder$btnAddClass"
+  AJAX_RESPONSE_DIV_ID = "ctl00_BodyContent_ucScheduleBuilder_updImportantMessages"
+  SUCCESS_MSG = "successfully added"
+  PENDING_TABLE_ID = "ctl00_BodyContent_ucScheduleBuilder_PendingClassesUpdatePanel"
+  REGISTER_NEXT_BUTTON_NAME = "ctl00$BodyContent$ucScheduleBuilder$btnNextB"
+  REGISTER_NEXT_NEXT_BUTTON_NAME = "ctl00$BodyContent$btnNextB"
+  MONEY_ORDER_RADIO_NAME = "ctl00$BodyContent$PaymentGroup"
+  CHECKOUT_TABLE_ID = "ctl00_BodyContent_CheckoutSummaryStep_grdEnrolledClasses"
+  CHECK_OR_MONEY_ORDER_RADIO_VALUE = "rdbCheckMoney"
+end
+
+class Agent
+  include Constants
+  attr_accessor :ff
+  
+  def initialize(username, password)
+    @ff = Watir::Browser.new
+    @ff.goto(MAIN_URL)
+    self.login(username, password)
+  end
+  
+  def login(username, password)
+    @ff.text_field(:name=>"UserName").set username
+    @ff.text_field(:name=>"Password").set password
+    @ff.button(:name=>"LoginUser").click
+  end
+  
+  def load_schedule_builder
+    @ff.goto(SCHEDULE_BUILDER_URL)
+    @ff.button(:name, SCHEDULE_BUILDER_BUTTON_NAME).click
+  end
+  
+  def try_adding_class(ticket_no)
+    # Returns either the response text, or false for timeout
+    print "."
+    self.load_schedule_builder
+    temp = @ff.div(:id=>AJAX_RESPONSE_DIV_ID).text
+    @ff.text_field(:name=>TICKET_TEXTFIELD_NAME).set ticket_no
+    @ff.button(:name=>TICKET_SUBMIT_NAME).click
+    wait_count = 0
+    while @ff.div(:id=>AJAX_RESPONSE_DIV_ID).text == temp
+      wait_count > 5 ? (return false) : wait_count+=1
+      sleep 1 # Wait a few seconds for ajax, if nothing, return false
+    end
+    return @ff.div(:id=>AJAX_RESPONSE_DIV_ID).text
+  end
+  
+  def try_registering_class(ticket_no)
+    # FIXME bail if ticket_no is already in the registered classes table
+    unless @ff.button(:name=>REGISTER_NEXT_BUTTON_NAME).exist?
+      self.load_schedule_builder
+    end
+    print "R"
+    @ff.button(:name=>REGISTER_NEXT_BUTTON_NAME).click
+    @ff.button(:name=>REGISTER_NEXT_NEXT_BUTTON_NAME).click
+    @ff.radio(:value=>CHECK_OR_MONEY_ORDER_RADIO_VALUE).set 
+    @ff.button(:name=>REGISTER_NEXT_NEXT_BUTTON_NAME).click
+    sleep 10 # Give the ajaxy checkout process plenty of time...
+    if @ff.table(:id=>CHECKOUT_TABLE_ID).text.include?("Enrolled #{ticket_no}")
+      return true
     else
-      # Class is probably open if the ticket number appears, and "class is full" does not appear
-      p "Class was open! Emailing and quitting."    
-      begin
-        mail_me "Class #{TICKET_NO} appears open!", @browser.div(:class, "imRegular").text # this was sent, confirmed working.
-      rescue Exception => mx # this is just in case something failed
-        mail_me "Class #{TICKET_NO} appears open!", "Alert! A class you are watching has an open spot! Ticket #: #{TICKET_NO}\nAlso mail error: #{mx.message}"
+      return false
+    end
+  end
+  
+  def is_class_open?(ticket_no)
+    if response = self.try_adding_class(ticket_no)
+      if response.include?(SUCCESS_MSG)
+        print "O" # Open
+        return true # Class appears to be open.
+      else
+        print "C" # Closed
+        return false
+      end
+    else # Adding class timed out... Maybe we actually added the class.
+      self.load_schedule_builder # Reload the schedule builder and check.
+      if @ff.table(:id=>PENDING_TABLE_ID).text.include?(ticket_no)
+        print "P" # Pending Registration
+        return true # Class appears to be open, we're pending registration
+      else
+        print "T" # Request Timeout
+        return false
       end
     end
-  rescue Exception => ex
-    puts ex.message
-    autoregister 120 # restarts the process after X time
   end
+  
 end
 
-autoregister # starts the loop
+class TicketMaster
+  # Wrapper class for the course, binding together its ticket number,
+  # a browser simulation Agent loaded with MySite credentials,
+  # and finally a Mailer object loaded with GMail credentials.
+  def self.wrap(options)
+    o[:tickets].map do |id|
+      self.new(id, o[:agent], o[:mailer])
+    end
+  end
+  
+  def initialize(ticket_no, agent, mailer)
+    @id = ticket_no.to_s
+    @agent = agent
+    @mailer = mailer
+    @registered = false
+  end
+  
+  def open?
+    unless @registered
+      if res = @agent.is_class_open?(@ticket_no)
+        @mailer.deliver_alert_class_open @id
+      end
+      return res
+    end
+  end
+  
+  def register!
+    if self.open?
+      if @agent.try_registering_class @ticket_no
+        @mailer.deliver_registration_success @id
+        @registered == true
+      else
+        @registered == false
+      end
+    end
+  end
+  
+end
 
+while true
+  until Time.now.hour.between?(6, 23)
+    print "S"
+    sleep 900 # Check the time every 15 minutes.
+  end
+  TicketMaster.wrap({
+    :tickets => TICKETS,
+    :agent => Agent.new(MYSITE_USERNAME, MYSITE_PASSWORD),
+    :mailer => Mailer.new(GMAIL_EMAIL, GMAIL_PASSWORD)
+  }).each { |course| course.register! }
+end
