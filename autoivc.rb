@@ -16,8 +16,9 @@ class Logger
   def initialize(filepath)
     @logfile = filepath
     File.open(@logfile, 'w') do |f|
+      f.puts "<html><head><title>AutoMySite</title></head><body>"
       f.puts "<pre>New session started @ #{Time.now}"
-      f.puts "Setting up to watch tickets: #{TICKETS.join(' ')}"
+      f.puts "Watching tickets: #{TICKETS.join(' ')}"
     end
   end
   def print(msg)
@@ -27,7 +28,7 @@ class Logger
   end
   def puts(msg)
     File.open(@logfile, 'a') do |f|
-      f.puts msg
+      f.puts "\n"+msg
     end
   end
 end
@@ -68,7 +69,10 @@ class Mailer
   
 end
 
-module Constants
+module MySite
+  def self.closed?
+    !Time.now.hour.between?(6, 23)
+  end
   MAIN_URL = "https://www1.socccd.cc.ca.us/portal/"
   SCHEDULE_BUILDER_URL = "https://www1.socccd.cc.ca.us/Portal/MySite/Classes/Registration/SelectTerm.aspx"
   SCHEDULE_BUILDER_BUTTON_NAME = "ctl00$BodyContent$Term1_AddDropClasses"
@@ -86,7 +90,7 @@ end
 
 class Agent
   require 'firewatir' # Browser simulator. See watir.com for installation info
-  include Constants
+  include MySite
   attr_accessor :ff
   
   def initialize(username, password)
@@ -208,9 +212,13 @@ end
 $log = Logger.new(LOGFILE)
 
 while true
-  until Time.now.hour.between?(6, 23)
-    $log.print "S" # Registration is closed from 11PM to 6AM
-    sleep 900 # Check the time every 15 minutes.
+  if MySite.closed?
+    $log.puts "MySite is closed, sleeping..."
+    while MySite.closed?
+      $log.print "S"
+      sleep 900 # Check the time every 15 minutes.
+    end
+    $log.puts "MySite has reopened. Waking up."
   end
   CourseDelegate.wrap({
     :tickets => TICKETS,
