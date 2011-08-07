@@ -1,17 +1,39 @@
 #! /usr/bin/env ruby
 require 'rubygems'
-require 'firewatir' # Browser simulator. See watir.com for installation info
-require 'pony' # Easy email
+if File.exists? "config.rb"
+  load "config.rb"
+else
+  puts %{\nPlease add the following to config.rb before proceeding:\n
+  MYSITE_USERNAME = "000000" # Your MySite username
+  MYSITE_PASSWORD = "0000" # Your MySite password
+  GMAIL_EMAIL = "you@gmail.com" # Your gmail username
+  GMAIL_PASSWORD = "your_gmail_pass" # Your gmail password
+  TICKETS = [00000, 11111, 22222] # Classes you're trying to add\n\n}
+  exit
+end
 
-load "config.rb" # Configurations stored as such:
-# MYSITE_USERNAME = "000000" # MySite username
-# MYSITE_PASSWORD = "0000" # MySite password
-# GMAIL_EMAIL = "you@gmail.com" # Your gmail username
-# GMAIL_PASSWORD = "your_gmail_pass" # Your gmail password
-# TICKETS = [00000, 11111, 22222] # Classes you're trying to add
+class Logger
+  def initialize(filepath)
+    @logfile = filepath
+    File.open(@logfile, 'w') do |f|
+      f.puts "<pre>New session started @ #{Time.now}"
+      f.puts "Setting up to watch tickets: #{TICKETS.join(' ')}"
+    end
+  end
+  def print(msg)
+    File.open(@logfile, 'a') do |f|
+      f.print msg
+    end
+  end
+  def puts(msg)
+    File.open(@logfile, 'a') do |f|
+      f.puts msg
+    end
+  end
+end
 
 class Mailer
-
+  require 'pony' # Easy email
   def initialize(gmail_email, gmail_password, to=nil)
     @opts = {
       :to => to||=gmail_email, :via => :smtp,
@@ -28,6 +50,7 @@ class Mailer
   end
   
   def deliver(subject, body)
+    $log.puts "Attempting to send email:\nSubject:#{}"
     @opts[:subject] = subject
     @opts[:body] = body
     Pony.mail(@opts)
@@ -62,6 +85,7 @@ module Constants
 end
 
 class Agent
+  require 'firewatir' # Browser simulator. See watir.com for installation info
   include Constants
   attr_accessor :ff
   
@@ -84,7 +108,7 @@ class Agent
   
   def try_adding_class(ticket_no)
     # Returns either the response text, or false for timeout
-    print "."
+    $log.print "."
     self.load_schedule_builder
     temp = @ff.div(:id=>AJAX_RESPONSE_DIV_ID).text
     @ff.text_field(:name=>TICKET_TEXTFIELD_NAME).set ticket_no
@@ -102,7 +126,7 @@ class Agent
     unless @ff.button(:name=>REGISTER_NEXT_BUTTON_NAME).exist?
       self.load_schedule_builder
     end
-    print "R"
+    $log.print "R"
     @ff.button(:name=>REGISTER_NEXT_BUTTON_NAME).click
     @ff.button(:name=>REGISTER_NEXT_NEXT_BUTTON_NAME).click
     @ff.radio(:value=>CHECK_OR_MONEY_ORDER_RADIO_VALUE).set 
@@ -118,19 +142,19 @@ class Agent
   def is_class_open?(ticket_no)
     if response = self.try_adding_class(ticket_no)
       if response.include?(SUCCESS_MSG)
-        print "O" # Open
+        $log.print "O" # Open
         return true # Class appears to be open.
       else
-        print "C" # Closed
+        $log.print "C" # Closed
         return false
       end
     else # Adding class timed out... Maybe we actually added the class.
       self.load_schedule_builder # Reload the schedule builder and check.
       if @ff.table(:id=>PENDING_TABLE_ID).text.include?(ticket_no)
-        print "P" # Pending Registration
+        $log.print "P" # Pending Registration
         return true # Class appears to be open, we're pending registration
       else
-        print "T" # Request Timeout
+        $log.print "T" # Request Timeout
         return false
       end
     end
@@ -138,7 +162,7 @@ class Agent
   
 end
 
-class TicketMaster
+class CourseDelegate
   # Wrapper class for the course, binding together its ticket number,
   # a browser simulation Agent loaded with MySite credentials,
   # and finally a Mailer object loaded with GMail credentials.
@@ -177,14 +201,23 @@ class TicketMaster
   
 end
 
+$log = Logger.new(LOGFILE)
+
 while true
   until Time.now.hour.between?(6, 23)
-    print "S"
+    $log.print "S" # Registration is closed from 11PM to 6AM
     sleep 900 # Check the time every 15 minutes.
   end
-  TicketMaster.wrap({
+  CourseDelegate.wrap({
     :tickets => TICKETS,
     :agent => Agent.new(MYSITE_USERNAME, MYSITE_PASSWORD),
-    :mailer => Mailer.new(GMAIL_EMAIL, GMAIL_PASSWORD)
-  }).each { |course| course.register! }
+    :mailer => Mailer.new(GMAIL_EMAIL, GMAIL_PASSWORD),
+  }).each do |course|
+    begin 
+      course.register!
+    rescue Exception => ex
+      $log.puts ex.message
+      $log.puts ex.backtrace
+    end
+  end
 end
