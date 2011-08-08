@@ -15,8 +15,10 @@ end
 class Logger
   def initialize(filepath)
     @logfile = filepath
+    title = "<title>AutoMySite</title>"
+    js = "<script>setInterval('window.location.reload()',1000);</script>"
     File.open(@logfile, 'w') do |f|
-      f.puts "<html><head><title>AutoMySite</title></head><body>"
+      f.puts "<html><head>#{title}#{js}</head><body>"
       f.puts "<pre>New session started @ #{Time.now}"
       f.puts "Watching tickets: #{TICKETS.join(' ')}"
     end
@@ -28,7 +30,7 @@ class Logger
   end
   def puts(msg)
     File.open(@logfile, 'a') do |f|
-      f.puts "\n"+msg
+      f.puts "\n#{msg}"
     end
   end
 end
@@ -112,7 +114,7 @@ class Agent
   
   def try_adding_class(ticket_no)
     # Returns either the response text, or false for timeout
-    $log.print "."
+    $log.print "+"
     self.load_schedule_builder
     temp = @ff.div(:id=>AJAX_RESPONSE_DIV_ID).text
     @ff.text_field(:name=>TICKET_TEXTFIELD_NAME).set ticket_no
@@ -174,7 +176,7 @@ class CourseDelegate
   # a browser simulation Agent loaded with MySite credentials,
   # and finally a Mailer object loaded with GMail credentials.
   attr_accessor :id
-  def self.wrap(options)
+  def self.wrap(o)
     o[:tickets].map do |id|
       self.new(id, o[:agent], o[:mailer])
     end
@@ -189,7 +191,7 @@ class CourseDelegate
   
   def open?
     unless @registered
-      if res = @agent.is_class_open?(@ticket_no)
+      if res = @agent.is_class_open?(@id)
         @mailer.deliver_alert_class_open @id
       end
       return res
@@ -198,7 +200,7 @@ class CourseDelegate
   
   def register!
     if self.open?
-      if @agent.try_registering_class @ticket_no
+      if @agent.try_registering_class @id
         @mailer.deliver_registration_success @id
         @registered == true
       else
@@ -210,21 +212,21 @@ class CourseDelegate
 end
 
 $log = Logger.new(LOGFILE)
-
+courses = CourseDelegate.wrap({
+  :tickets => TICKETS,
+  :agent => Agent.new(MYSITE_USERNAME, MYSITE_PASSWORD),
+  :mailer => Mailer.new(GMAIL_EMAIL, GMAIL_PASSWORD),
+})
 while true
   if MySite.closed?
     $log.puts "MySite is closed, sleeping..."
     while MySite.closed?
-      $log.print "S"
+      $log.print "z"
       sleep 900 # Check the time every 15 minutes.
     end
     $log.puts "MySite has reopened. Waking up."
   end
-  CourseDelegate.wrap({
-    :tickets => TICKETS,
-    :agent => Agent.new(MYSITE_USERNAME, MYSITE_PASSWORD),
-    :mailer => Mailer.new(GMAIL_EMAIL, GMAIL_PASSWORD),
-  }).each do |course|
+  courses.each do |course|
     begin
       $log.puts "Current course: #{course.id}"
       course.register!
