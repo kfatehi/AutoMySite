@@ -73,7 +73,7 @@ end
 
 module MySite
   def self.closed?
-    !Time.now.hour.between?(6, 23)
+    !Time.now.hour.between?(6, 22)
   end
   MAIN_URL = "https://www1.socccd.cc.ca.us/portal/"
   SCHEDULE_BUILDER_URL = "https://www1.socccd.cc.ca.us/Portal/MySite/Classes/Registration/SelectTerm.aspx"
@@ -109,6 +109,10 @@ class Agent
   
   def load_schedule_builder
     @ff.goto(SCHEDULE_BUILDER_URL)
+    if @ff.text_field(:name=>"UserName").exists?
+      self.login
+      @ff.goto(SCHEDULE_BUILDER_URL)
+    end
     @ff.button(:name, SCHEDULE_BUILDER_BUTTON_NAME).click
   end
   
