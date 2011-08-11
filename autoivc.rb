@@ -1,5 +1,14 @@
 #! /usr/bin/env ruby
 require 'rubygems'
+
+# This script will help you get into a class at any college that uses the MySite
+# registration portal. In order to use this script, you will need to have a system
+# running 24/7 with this script running 24/7. The system needs the following:
+# * Firefox 3.6 + JSSH http://wiki.openqa.org/display/WTR/FireWatir+Installation
+# In order to receive email, make sure your ruby is linked with openssl, otherwise
+# you will not receive alert emails. The script will email you when a class is open
+# or when it has been successfully registered. It will also put you on priority add list.
+
 if File.exists? "config.rb"
   load "config.rb"
 else
@@ -16,7 +25,12 @@ class Logger
   def initialize(filepath)
     @logfile = filepath
     title = "<title>AutoMySite</title>"
-    js = "<script>setInterval('window.location.reload()',1000);</script>"
+    js = %{<script>
+      window.onload = function () {
+        window.scrollTo(0, document.body.scrollHeight);
+        setTimeout('window.location.reload()', 5000);
+      }</script>
+    }
     File.open(@logfile, 'w') do |f|
       f.puts "<html><head>#{title}#{js}</head><body>"
       f.puts "<pre>New session started @ #{Time.now}"
@@ -88,6 +102,7 @@ module MySite
   MONEY_ORDER_RADIO_NAME = "ctl00$BodyContent$PaymentGroup"
   CHECKOUT_TABLE_ID = "ctl00_BodyContent_CheckoutSummaryStep_grdEnrolledClasses"
   CHECK_OR_MONEY_ORDER_RADIO_VALUE = "rdbCheckMoney"
+  PRIORITY_ADD_LIST_SUBMIT_BUTTON_NAME = "ctl00$BodyContent$ucScheduleBuilder$btnPalDialogYes"
 end
 
 class Agent
@@ -98,6 +113,8 @@ class Agent
   def initialize(username, password)
     @ff = Watir::Browser.new
     @ff.goto(MAIN_URL)
+    @username = username
+    @password = password
     self.login(username, password)
   end
   
@@ -110,7 +127,7 @@ class Agent
   def load_schedule_builder
     @ff.goto(SCHEDULE_BUILDER_URL)
     if @ff.text_field(:name=>"UserName").exists?
-      self.login
+      self.login(@username, @password)
       @ff.goto(SCHEDULE_BUILDER_URL)
     end
     @ff.button(:name, SCHEDULE_BUILDER_BUTTON_NAME).click
@@ -125,8 +142,11 @@ class Agent
     @ff.button(:name=>TICKET_SUBMIT_NAME).click
     wait_count = 0
     while @ff.div(:id=>AJAX_RESPONSE_DIV_ID).text == temp
-      wait_count > 5 ? (return false) : wait_count+=1
+      wait_count > 10 ? (return false) : wait_count+=1
       sleep 1 # Wait a few seconds for ajax, if nothing, return false
+    end
+    if @ff.button(:name=>PRIORITY_ADD_LIST_SUBMIT_BUTTON_NAME).exists?
+      @ff.button(:name=>PRIORITY_ADD_LIST_SUBMIT_BUTTON_NAME).click
     end
     return @ff.div(:id=>AJAX_RESPONSE_DIV_ID).text
   end
