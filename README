@@ -1,0 +1,19 @@
+This script will help you get into a class at any MySite-driven college such as
+IVC or Saddleback. In order to use this script, you will need to have a system
+with the following setup, recommended on Ubuntu (maybe a headless VirtaulBox VM):
+
+* Ruby 1.8.7 or newer
+* Firefox 3.6 + JSSH http://wiki.openqa.org/display/WTR/FireWatir+Installation
+* The following gems: pony, firewatir
+
+In order to receive email, make sure your ruby is linked with openssl, otherwise
+you will not receive alert emails. The script will email you when a class is open
+or when it has been successfully registered. It will also put you on priority add list.
+To begin, make sure you fill out the options in the script, such as username, and class IDs.
+Once you've done all that, you can run the script like any other ruby script.
+
+If you want to make improvements, here are some things that would be cool:
+Detect when in Credit Card only mode (after semester begins they disable money order)
+Accept insertion of credit card info automatically.
+
+Enjoy ;)
