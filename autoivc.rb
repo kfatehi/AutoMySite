@@ -1,25 +1,60 @@
 #! /usr/bin/env ruby
+=begin ========== LICENSE & DISCLAIMER
+Copyright 2011 Keyvan Fatehi. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification, are
+permitted provided that the following conditions are met:
+
+   1. Redistributions of source code must retain the above copyright notice, this list of
+      conditions and the following disclaimer.
+
+   2. Redistributions in binary form must reproduce the above copyright notice, this list
+      of conditions and the following disclaimer in the documentation and/or other materials
+      provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY KEYVAN ''AS IS'' AND ANY EXPRESS OR IMPLIED
+WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL KEYVAN OR
+CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+The views and conclusions contained in the software and documentation are those of the
+authors and should not be interpreted as representing official policies, either expressed
+or implied, of Keyvan Fatehi.
+
+THIS IS FOR EDUCATIONAL PURPOSES ONLY. I AM NOT RESPONSIBLE OR LIABLE FOR YOUR USE HEREIN
+=end
+
+MYSITE_USERNAME = "123456"
+MYSITE_PASSWORD = "1234"
+GMAIL_EMAIL = "you@gmail.com"
+GMAIL_PASSWORD = "your_gmail_password"
+TICKETS = %w(63040 63315 63090) # the class or classes you want to register
+LOGFILE = "/path/to/my_log.html" # if you want to use the log feature
+
+=begin ========== ABOUT, INSTRUCTIONS, REQUIREMENTS
+This script will help you get into a class at any MySite-driven college such as
+IVC or Saddleback. In order to use this script, you will need to have a system
+with the following setup, recommended on Ubuntu (maybe a headless VirtaulBox VM):
+* Ruby 1.8.7 or newer
+* Firefox 3.6 + JSSH http://wiki.openqa.org/display/WTR/FireWatir+Installation
+* The following gems: pony, firewatir
+In order to receive email, make sure your ruby is linked with openssl, otherwise
+you will not receive alert emails. The script will email you when a class is open
+or when it has been successfully registered. It will also put you on priority add list.
+To begin, make sure you fill out the options above, such as username, and class IDs.
+Once you've done all that, you can run the script like any other ruby script.
+
+If you want to make improvements, here are some things that would be cool:
+Detect when in Credit Card only mode (after semester begins they disable money order)
+Accept insertion of credit card info automatically.
+=end
+
 require 'rubygems'
-
-# This script will help you get into a class at any college that uses the MySite
-# registration portal. In order to use this script, you will need to have a system
-# running 24/7 with this script running 24/7. The system needs the following:
-# * Firefox 3.6 + JSSH http://wiki.openqa.org/display/WTR/FireWatir+Installation
-# In order to receive email, make sure your ruby is linked with openssl, otherwise
-# you will not receive alert emails. The script will email you when a class is open
-# or when it has been successfully registered. It will also put you on priority add list.
-
-if File.exists? "config.rb"
-  load "config.rb"
-else
-  puts %{\nPlease add the following to config.rb before proceeding:\n
-  MYSITE_USERNAME = "000000" # Your MySite username
-  MYSITE_PASSWORD = "0000" # Your MySite password
-  GMAIL_EMAIL = "you@gmail.com" # Your gmail username
-  GMAIL_PASSWORD = "your_gmail_pass" # Your gmail password
-  TICKETS = [00000, 11111, 22222] # Classes you're trying to add\n\n}
-  exit
-end
 
 class Logger
   def initialize(filepath)
@@ -35,6 +70,15 @@ class Logger
       f.puts "<html><head>#{title}#{js}</head><body>"
       f.puts "<pre>New session started @ #{Time.now}"
       f.puts "Watching tickets: #{TICKETS.join(' ')}"
+      f.puts "<p><b>LOG LEGEND</b><ul><li>'+' Attempted to add class</li>"
+      f.puts "<li>'O' Class detected as OPEN.</li>"
+      f.puts "<li>'C' Class detected as CLOSED.</li>"
+      f.puts "<li>'P' Class pending registration.</li>"
+      f.puts "<li>'R' Will try to register class now.</li>"
+      f.puts "<li>'S' Registration was a success.</li>"
+      f.puts "<li>'F' Failed to register for the class.</li>"
+      f.puts "<li>'T' Request timed out.</li></ul></p>"
+      
     end
   end
   def print(msg)
@@ -89,9 +133,11 @@ module MySite
   def self.closed?
     !Time.now.hour.between?(6, 22)
   end
+  # These may change / break / etc, so they are conveniently constantized below:
   MAIN_URL = "https://www1.socccd.cc.ca.us/portal/"
   SCHEDULE_BUILDER_URL = "https://www1.socccd.cc.ca.us/Portal/MySite/Classes/Registration/SelectTerm.aspx"
-  SCHEDULE_BUILDER_BUTTON_NAME = "ctl00$BodyContent$Term1_AddDropClasses"
+  SCHEDULE_BUILDER_BUTTON_NAME_0 = "ctl00$BodyContent$Term0_AddDropClasses"
+  SCHEDULE_BUILDER_BUTTON_NAME_1 = "ctl00$BodyContent$Term1_AddDropClasses"
   TICKET_TEXTFIELD_NAME = "ctl00$BodyContent$ucScheduleBuilder$txtTicketNumber"
   TICKET_SUBMIT_NAME = "ctl00$BodyContent$ucScheduleBuilder$btnAddClass"
   AJAX_RESPONSE_DIV_ID = "ctl00_BodyContent_ucScheduleBuilder_updImportantMessages"
@@ -130,7 +176,11 @@ class Agent
       self.login(@username, @password)
       @ff.goto(SCHEDULE_BUILDER_URL)
     end
-    @ff.button(:name, SCHEDULE_BUILDER_BUTTON_NAME).click
+    if @ff.button(:name, SCHEDULE_BUILDER_BUTTON_NAME_1).exists?
+      @ff.button(:name, SCHEDULE_BUILDER_BUTTON_NAME_1).click
+    elsif @ff.button(:name, SCHEDULE_BUILDER_BUTTON_NAME_0).exists?
+      @ff.button(:name, SCHEDULE_BUILDER_BUTTON_NAME_0).click
+    end
   end
   
   def try_adding_class(ticket_no)
@@ -235,7 +285,7 @@ class CourseDelegate
   
 end
 
-$log = Logger.new(LOGFILE)
+$log = Logger.new(LOGFILE.blank? ? "log.html" : LOGFILE)
 courses = CourseDelegate.wrap({
   :tickets => TICKETS,
   :agent => Agent.new(MYSITE_USERNAME, MYSITE_PASSWORD),
